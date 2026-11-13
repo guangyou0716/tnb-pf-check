@@ -120,6 +120,21 @@ brings every month's average PF to `--target`; `peakKvar` is the largest lagging
 a first estimate for discussion with your electrical contractor, not a design: it ignores harmonics, voltage,
 standard bank sizes and gaps in the data.
 
+### Automatic (APFC) bank
+
+`--apfc-step <kvar>` also sizes an automatic bank of equal steps (text, Markdown and JSON `meters[].apfc`; not in
+`--csv`). In each interval the simulated controller switches in as many steps as fit under that interval's mean
+lagging kVAr, so it never over-compensates; the tool finds the fewest steps that lift every month to `--target`:
+
+```
+APFC: 2 x 10.0 kVAr = 20.0 kVAr lifts every month to PF >= 0.90 with no leading kVArh (mean 1.5 step(s) in service, all steps in 1 interval(s)).
+  After: 2026-01 0.9285
+```
+
+If even every step the load can use leaves a month below the target (`targetMet: false`), the step is too coarse
+for the load: try a smaller one. Real controllers switch on measured kVAr with delays and hysteresis; this
+interval-mean model is a first estimate, like the fixed-bank sizing.
+
 ## Library
 
 ```ts
