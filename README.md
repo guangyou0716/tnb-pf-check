@@ -96,6 +96,19 @@ Markdown output), and one output format: `--json`, `--md` (Markdown report with 
 `--csv` (one row per meter-month: energy, average PF, surcharge %, RM, sized bank, PF and surcharge after it;
 text cells starting with `= + - @` get a leading `'` so spreadsheets do not run them as formulas).
 
+`--profile` adds an hour-of-day table per meter (text, Markdown and JSON `meters[].profile`; not in `--csv`):
+kWh, lagging kVArh, mean kW / kVAr and PF of each hour (by interval start, over all days), with the hours below
+the supply minimum merged into ranges, e.g. for the example:
+
+```text
+08:00-09:00        118  5,900.0    5,930.0   100.0     100.5  0.7053  low
+...
+  Below PF 0.85: 08:00-20:00.
+```
+
+This shows when the PF is poor (and what kVAr is drawn then), which helps decide between a fixed bank, a
+stepped (APFC) bank or switching a bank with the day shift.
+
 Exit codes: `0` no findings, `1` findings (a surcharge month or a data issue), `2` input error.
 
 ### Capacitor sizing

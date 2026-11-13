@@ -1,4 +1,5 @@
 import type { Report } from './analyze.js';
+import { hourLabel, profileRows } from './report.js';
 
 /** One CSV cell: quoted when needed; cells starting with = + - @ tab or CR (text, not numbers) get a leading ' so spreadsheets do not run them as formulas. */
 export function csvCell(v: string | number | null | undefined): string {
@@ -119,6 +120,18 @@ export function formatMarkdown(report: Report, limit = 50): string {
       if (z.overCompensatedIntervals > 0) {
         out.push('', `Over-compensation: ${z.overCompensatedIntervals} interval(s), ${fixed(z.addedLeadingKvarh, 1)} kVArh leading at light load; consider an automatic (stepped) bank.`);
       }
+    }
+    if (m.profile) {
+      const { used, below } = profileRows(m.profile);
+      out.push('', '### Hour-of-day profile', '', '_Hour of the interval start, all days._', '');
+      out.push(
+        ...mdTable(
+          ['Hour', 'Intervals', 'kWh', 'kVArh lag', 'Avg kW', 'Avg kVAr', 'PF', 'Below minimum'],
+          used.map((p) => [hourLabel(p.hour), p.intervals, fixed(p.kwh, 1), fixed(p.kvarhLagging, 1), fixed(p.avgKw, 1), fixed(p.avgKvar, 1), p.pf === null ? '-' : p.pf.toFixed(4), p.belowMinimum ? 'yes' : '']),
+          [false, true, true, true, true, true, true, false],
+        ),
+      );
+      out.push('', below.length === 0 ? `No hour is below PF ${report.minimumPf.toFixed(2)}.` : `Below PF ${report.minimumPf.toFixed(2)}: ${below.join(', ')}.`);
     }
   }
   out.push('', `## Findings (${report.findings.length})`, '');

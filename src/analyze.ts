@@ -14,6 +14,8 @@ export interface AnalyzeOptions {
   /** Interval length in minutes; inferred per meter (most common step) when not given. */
   intervalMinutes?: number;
   charges?: Charges;
+  /** Add an hour-of-day PF profile per meter (hour of the interval start). */
+  profile?: boolean;
 }
 
 export type FindingType = 'surcharge' | 'duplicate-timestamp' | 'negative-kwh' | 'gap' | 'irregular-step';
@@ -56,6 +58,21 @@ export interface Sizing {
   monthsAfter: { month: string; pf: number | null; surchargePercent: number }[];
 }
 
+export interface HourProfile {
+  /** Hour of day 0..23 of the interval start (local wall clock). */
+  hour: number;
+  intervals: number;
+  kwh: number;
+  kvarhLagging: number;
+  /** PF of the energy in this hour over all days (null when no energy). */
+  pf: number | null;
+  /** Mean kW and mean lagging kVAr over the intervals in this hour. */
+  avgKw: number;
+  avgKvar: number;
+  /** PF below the supply minimum (the hours that drag the monthly average down). */
+  belowMinimum: boolean;
+}
+
 export interface MeterResult {
   meter: string;
   intervalMinutes: number;
@@ -64,6 +81,8 @@ export interface MeterResult {
   last: string;
   months: MonthResult[];
   sizing: Sizing;
+  /** Present only with the profile option: 24 rows, hour 0..23. */
+  profile?: HourProfile[];
 }
 
 export interface Report {
@@ -175,6 +194,23 @@ function sizeBank(intervals: Interval[], months: MonthResult[], intervalMinutes:
   };
 }
 
+function hourProfile(hours: { intervals: number; kwh: number; lag: number }[], step: number, supply: Supply): HourProfile[] {
+  const h = step / 60;
+  return hours.map((x, hour) => {
+    const pf = averagePf(x.kwh, x.lag);
+    return {
+      hour,
+      intervals: x.intervals,
+      kwh: round(x.kwh, 3),
+      kvarhLagging: round(x.lag, 3),
+      pf: pf === null ? null : round(pf, 4),
+      avgKw: x.intervals === 0 ? 0 : round(x.kwh / (x.intervals * h), 3),
+      avgKvar: x.intervals === 0 ? 0 : round(x.lag / (x.intervals * h), 3),
+      belowMinimum: pf !== null && pf < LIMITS[supply].minimum,
+    };
+  });
+}
+
 export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Report {
   const supply = options.supply ?? 'lv';
   const target = options.target ?? 0.9;
@@ -215,6 +251,7 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
     const monthIndex = new Map<string, number>();
     const months: MonthResult[] = [];
     const intervals: Interval[] = [];
+    const hours = options.profile ? Array.from({ length: 24 }, () => ({ intervals: 0, kwh: 0, lag: 0 })) : null;
     for (let i = 0; i < unique.length; i++) {
       const row = unique[i];
       if (i > 0) {
@@ -246,6 +283,12 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       m.kvarhLagging += lag;
       m.kvarhLeading += lead;
       intervals.push({ kwh, lag, lead, month: mi });
+      if (hours) {
+        const h = hours[Math.floor((((start % 1440) + 1440) % 1440) / 60)];
+        h.intervals++;
+        h.kwh += kwh;
+        h.lag += lag;
+      }
     }
     for (const m of months) {
       m.coverage = round((m.intervals * step) / minutesInMonth(m.month), 4);
@@ -277,6 +320,7 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       last: formatMinutes(unique[unique.length - 1].stamp),
       months,
       sizing: sizeBank(intervals, months, step, target, supply, options.pfRound),
+      ...(hours ? { profile: hourProfile(hours, step, supply) } : {}),
     });
   }
   const order: FindingType[] = ['surcharge', 'gap', 'irregular-step', 'duplicate-timestamp', 'negative-kwh'];
