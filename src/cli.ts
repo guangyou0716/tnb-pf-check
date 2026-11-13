@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { analyze, type AnalyzeOptions } from './analyze.js';
 import { InputError } from './errors.js';
 import { parseCharges, parseIntervals, type ColumnOptions, type IntervalRow } from './input.js';
+import { formatCsv, formatMarkdown } from './formats.js';
 import { formatText } from './report.js';
 
 export const VERSION = '0.1.0';
@@ -27,8 +28,10 @@ Options:
   --kwh-column <name>   default "kwh"
   --kvarh-column <name> default "kvarh"
   --meter-column <name> default "meter" when present
-  --limit <n>           findings shown in text output (default 50)
+  --limit <n>           findings shown in text / Markdown output (default 50)
   --json                JSON output
+  --md                  Markdown report (summary, month tables, sizing, findings)
+  --csv                 CSV, one row per meter-month (incl. PF after the sized bank)
   -h, --help, --version
 
 Exit: 0 no findings, 1 findings (surcharge months or data issues), 2 input error.`;
@@ -38,7 +41,7 @@ interface Parsed {
   columns: ColumnOptions;
   analyze: AnalyzeOptions;
   chargesFile?: string;
-  json: boolean;
+  format: 'text' | 'json' | 'md' | 'csv';
   limit: number;
 }
 
@@ -51,7 +54,11 @@ function numberFlag(flag: string, value: string): number {
 }
 
 export function parseArgs(argv: string[]): Parsed | 'help' | 'version' {
-  const p: Parsed = { files: [], columns: {}, analyze: {}, json: false, limit: 50 };
+  const p: Parsed = { files: [], columns: {}, analyze: {}, format: 'text', limit: 50 };
+  const setFormat = (f: Parsed['format']) => {
+    if (p.format !== 'text' && p.format !== f) throw new InputError('use only one of --json, --md, --csv.');
+    p.format = f;
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -66,7 +73,13 @@ export function parseArgs(argv: string[]): Parsed | 'help' | 'version' {
       case '--version':
         return 'version';
       case '--json':
-        p.json = true;
+        setFormat('json');
+        break;
+      case '--md':
+        setFormat('md');
+        break;
+      case '--csv':
+        setFormat('csv');
         break;
       case '--supply': {
         const v = value();
@@ -147,7 +160,15 @@ export function run(argv: string[], out: (s: string) => void, err: (s: string) =
     }
     if (p.chargesFile) p.analyze.charges = parseCharges(read(p.chargesFile), p.chargesFile);
     const report = analyze(rows, p.analyze);
-    out(p.json ? JSON.stringify(report, null, 2) + '\n' : formatText(report, p.limit));
+    out(
+      p.format === 'json'
+        ? JSON.stringify(report, null, 2) + '\n'
+        : p.format === 'md'
+          ? formatMarkdown(report, p.limit)
+          : p.format === 'csv'
+            ? formatCsv(report)
+            : formatText(report, p.limit),
+    );
     return report.findings.length > 0 ? 1 : 0;
   } catch (e) {
     if (e instanceof InputError) {

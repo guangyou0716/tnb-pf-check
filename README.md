@@ -91,8 +91,10 @@ The example is synthetic (made by `scripts/make-example.mjs`) and hand-checkable
 50 kWh; January has 55 kVArh in the day and 20 at night, so 2,400 kWh and 1,800 kVArh a day = PF 0.80 exactly.
 
 Options: `--supply lv|hv`, `--target <pf>` (sizing target, default 0.90), `--pf-round <digits>`,
-`--charges <file>`, `--stamp end|start`, `--interval <min>`, column names, `--limit <n>` (findings in text
-output), `--json`.
+`--charges <file>`, `--stamp end|start`, `--interval <min>`, column names, `--limit <n>` (findings in text /
+Markdown output), and one output format: `--json`, `--md` (Markdown report with a "PF with N kVAr" column) or
+`--csv` (one row per meter-month: energy, average PF, surcharge %, RM, sized bank, PF and surcharge after it;
+text cells starting with `= + - @` get a leading `'` so spreadsheets do not run them as formulas).
 
 Exit codes: `0` no findings, `1` findings (a surcharge month or a data issue), `2` input error.
 
