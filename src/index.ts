@@ -1,5 +1,5 @@
 export { analyze } from './analyze.js';
-export type { AnalyzeOptions, Finding, FindingType, MeterResult, MonthResult, Report, Sizing } from './analyze.js';
+export type { AnalyzeOptions, Finding, FindingType, HourProfile, MeterResult, MonthResult, Report, Sizing } from './analyze.js';
 export { InputError } from './errors.js';
 export { parseCharges, parseIntervals } from './input.js';
 export type { Charges, ColumnOptions, IntervalRow } from './input.js';

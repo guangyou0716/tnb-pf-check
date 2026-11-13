@@ -1,4 +1,4 @@
-import type { Report } from './analyze.js';
+import type { HourProfile, Report } from './analyze.js';
 
 const num = (v: number, d: number) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
@@ -7,6 +7,25 @@ function table(head: string[], rows: string[][]): string[] {
   const widths = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
   const line = (r: string[]) => r.map((c, i) => (i === 0 ? c.padEnd(widths[i]) : c.padStart(widths[i]))).join('  ').trimEnd();
   return [line(head), line(widths.map((w) => '-'.repeat(w))), ...rows.map(line)];
+}
+
+const hh = (h: number) => `${String(h).padStart(2, '0')}:00`;
+export const hourLabel = (h: number) => `${hh(h)}-${hh(h + 1)}`;
+
+/** Hours with data (for the profile tables) and the below-minimum hours as merged ranges ("08:00-20:00"). */
+export function profileRows(profile: HourProfile[]) {
+  const used = profile.filter((p) => p.intervals > 0);
+  const below: string[] = [];
+  let from = -1;
+  for (let h = 0; h <= 24; h++) {
+    const low = h < 24 && profile[h]?.belowMinimum === true;
+    if (low && from < 0) from = h;
+    if (!low && from >= 0) {
+      below.push(`${hh(from)}-${hh(h)}`);
+      from = -1;
+    }
+  }
+  return { used, below };
 }
 
 export function formatText(report: Report, limit = 50): string {
@@ -42,6 +61,17 @@ export function formatText(report: Report, limit = 50): string {
       if (z.overCompensatedIntervals > 0) {
         out.push(`  Over-compensation: ${z.overCompensatedIntervals} interval(s), ${num(z.addedLeadingKvarh, 1)} kVArh leading at light load; consider an automatic (stepped) bank.`);
       }
+    }
+    if (m.profile) {
+      const { used, below } = profileRows(m.profile);
+      out.push('', 'Hour-of-day profile (interval start, all days):');
+      out.push(
+        ...table(
+          ['Hour', 'Intervals', 'kWh', 'kVArh lag', 'Avg kW', 'Avg kVAr', 'PF', ''],
+          used.map((p) => [hourLabel(p.hour), String(p.intervals), num(p.kwh, 1), num(p.kvarhLagging, 1), num(p.avgKw, 1), num(p.avgKvar, 1), p.pf === null ? '-' : p.pf.toFixed(4), p.belowMinimum ? 'low' : '']),
+        ),
+      );
+      out.push(below.length === 0 ? `  No hour is below PF ${report.minimumPf.toFixed(2)}.` : `  Below PF ${report.minimumPf.toFixed(2)}: ${below.join(', ')}.`);
     }
   }
   out.push('');
