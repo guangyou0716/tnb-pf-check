@@ -29,6 +29,7 @@ Options:
   --kvarh-column <name> default "kvarh"
   --meter-column <name> default "meter" when present
   --profile             hour-of-day PF profile per meter (text / Markdown / JSON; not in --csv)
+  --apfc-step <kvar>    also size an automatic (APFC) bank of equal steps of this kVAr (text / Markdown / JSON)
   --limit <n>           findings shown in text / Markdown output (default 50)
   --json                JSON output
   --md                  Markdown report (summary, month tables, sizing, findings)
@@ -123,6 +124,9 @@ export function parseArgs(argv: string[]): Parsed | 'help' | 'version' {
         break;
       case '--profile':
         p.analyze.profile = true;
+        break;
+      case '--apfc-step':
+        p.analyze.apfcStepKvar = numberFlag(arg, value());
         break;
       case '--limit': {
         const n = numberFlag(arg, value());

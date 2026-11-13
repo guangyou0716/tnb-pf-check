@@ -16,6 +16,8 @@ export interface AnalyzeOptions {
   charges?: Charges;
   /** Add an hour-of-day PF profile per meter (hour of the interval start). */
   profile?: boolean;
+  /** Simulate an automatic (APFC) bank of equal steps of this many kVAr and size the step count. */
+  apfcStepKvar?: number;
 }
 
 export type FindingType = 'surcharge' | 'duplicate-timestamp' | 'negative-kwh' | 'gap' | 'irregular-step';
@@ -58,6 +60,21 @@ export interface Sizing {
   monthsAfter: { month: string; pf: number | null; surchargePercent: number }[];
 }
 
+export interface ApfcSizing {
+  target: number;
+  stepKvar: number;
+  /** Fewest equal steps that lift every month to the target (or the most steps the load ever uses). */
+  steps: number;
+  installedKvar: number;
+  /** False when even every usable step leaves a month below the target (load too small for the step). */
+  targetMet: boolean;
+  /** Mean number of steps in service over the intervals. */
+  avgStepsOn: number;
+  /** Intervals where all steps are in service (bank fully used). */
+  fullIntervals: number;
+  monthsAfter: { month: string; pf: number | null; surchargePercent: number }[];
+}
+
 export interface HourProfile {
   /** Hour of day 0..23 of the interval start (local wall clock). */
   hour: number;
@@ -83,6 +100,8 @@ export interface MeterResult {
   sizing: Sizing;
   /** Present only with the profile option: 24 rows, hour 0..23. */
   profile?: HourProfile[];
+  /** Present only with the apfcStepKvar option. */
+  apfc?: ApfcSizing;
 }
 
 export interface Report {
@@ -194,6 +213,69 @@ function sizeBank(intervals: Interval[], months: MonthResult[], intervalMinutes:
   };
 }
 
+/**
+ * Automatic bank of n equal steps: in each interval the controller switches in as many steps as fit under the
+ * interval's mean lagging kVAr (never over-compensates), at most n.
+ */
+function apfcAfter(intervals: Interval[], monthCount: number, step: number, n: number, intervalMinutes: number) {
+  const hours = intervalMinutes / 60;
+  const lag = new Array<number>(monthCount).fill(0);
+  let on = 0;
+  let full = 0;
+  for (const iv of intervals) {
+    const k = Math.min(n, Math.floor(iv.lag / hours / step + 1e-9));
+    on += k;
+    if (n > 0 && k === n) full++;
+    lag[iv.month] += Math.max(0, iv.lag - k * step * hours);
+  }
+  return { lag, on, full };
+}
+
+function sizeApfc(intervals: Interval[], months: MonthResult[], intervalMinutes: number, step: number, target: number, supply: Supply, pfRound: number | undefined): ApfcSizing {
+  const ok = (n: number) => {
+    const { lag } = apfcAfter(intervals, months.length, step, n, intervalMinutes);
+    return months.every((m, i) => {
+      const pf = averagePf(m.kwh, lag[i]);
+      return pf === null || pf >= target - 1e-12;
+    });
+  };
+  const hours = intervalMinutes / 60;
+  let usable = 0;
+  for (const iv of intervals) usable = Math.max(usable, Math.floor(iv.lag / hours / step + 1e-9));
+  let steps = 0;
+  let targetMet = true;
+  if (!ok(0)) {
+    if (!ok(usable)) {
+      steps = usable;
+      targetMet = false;
+    } else {
+      let lo = 0;
+      let hi = usable;
+      while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (ok(mid)) hi = mid;
+        else lo = mid;
+      }
+      steps = hi;
+    }
+  }
+  const after = apfcAfter(intervals, months.length, step, steps, intervalMinutes);
+  return {
+    target,
+    stepKvar: step,
+    steps,
+    installedKvar: round(steps * step, 3),
+    targetMet,
+    avgStepsOn: intervals.length === 0 ? 0 : round(after.on / intervals.length, 3),
+    fullIntervals: after.full,
+    monthsAfter: months.map((m, i) => {
+      const pf = averagePf(m.kwh, after.lag[i]);
+      const used = pf === null ? null : pfRound === undefined ? pf : roundHalfUp(pf, pfRound);
+      return { month: m.month, pf: pf === null ? null : round(pf, 4), surchargePercent: used === null ? 0 : surchargePercent(used, supply) };
+    }),
+  };
+}
+
 function hourProfile(hours: { intervals: number; kwh: number; lag: number }[], step: number, supply: Supply): HourProfile[] {
   const h = step / 60;
   return hours.map((x, hour) => {
@@ -220,6 +302,9 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
   }
   if (options.intervalMinutes !== undefined && !(Number.isInteger(options.intervalMinutes) && options.intervalMinutes >= 1 && options.intervalMinutes <= 1440)) {
     throw new InputError('--interval must be a whole number of minutes from 1 to 1440.');
+  }
+  if (options.apfcStepKvar !== undefined && !(Number.isFinite(options.apfcStepKvar) && options.apfcStepKvar > 0 && options.apfcStepKvar <= 100000)) {
+    throw new InputError('--apfc-step must be a kVAr value above 0 and at most 100000.');
   }
   if (rows.length === 0) {
     throw new InputError('no interval rows.');
@@ -312,6 +397,7 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
         findings.push({ type: 'surcharge', meter, month: m.month, message: `average PF ${m.pfForSurcharge!.toFixed(4)} is below ${LIMITS[supply].minimum.toFixed(2)}: surcharge ${m.surchargePercent}%${rm}.` });
       }
     }
+    const sizing = sizeBank(intervals, months, step, target, supply, options.pfRound);
     meters.push({
       meter,
       intervalMinutes: step,
@@ -319,8 +405,11 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       first: formatMinutes(unique[0].stamp),
       last: formatMinutes(unique[unique.length - 1].stamp),
       months,
-      sizing: sizeBank(intervals, months, step, target, supply, options.pfRound),
+      sizing,
       ...(hours ? { profile: hourProfile(hours, step, supply) } : {}),
+      ...(options.apfcStepKvar !== undefined
+        ? { apfc: sizeApfc(intervals, months, step, options.apfcStepKvar, target, supply, options.pfRound) }
+        : {}),
     });
   }
   const order: FindingType[] = ['surcharge', 'gap', 'irregular-step', 'duplicate-timestamp', 'negative-kwh'];

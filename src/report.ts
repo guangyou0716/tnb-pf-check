@@ -1,4 +1,4 @@
-import type { HourProfile, Report } from './analyze.js';
+import type { ApfcSizing, HourProfile, Report } from './analyze.js';
 
 const num = (v: number, d: number) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
@@ -26,6 +26,29 @@ export function profileRows(profile: HourProfile[]) {
     }
   }
   return { used, below };
+}
+
+/** One-paragraph APFC result, shared by text and Markdown (bold marks the installed size in Markdown). */
+export function apfcLines(a: ApfcSizing, bold = false): string[] {
+  const b = (t: string) => (bold ? `**${t}**` : t);
+  const kv = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+  const after = `After: ${a.monthsAfter.map((x) => `${x.month} ${x.pf === null ? '-' : x.pf.toFixed(4)}`).join(', ')}`;
+  if (a.steps === 0 && a.targetMet) {
+    return [`APFC (${kv(a.stepKvar)} kVAr steps): no steps needed, every month already reaches PF ${a.target.toFixed(2)}.`];
+  }
+  if (!a.targetMet && a.steps === 0) {
+    return [`APFC (${kv(a.stepKvar)} kVAr steps): one step is more than the lagging kVAr of any interval, so it would never switch in; use a smaller step.`];
+  }
+  if (!a.targetMet) {
+    return [
+      `APFC (${kv(a.stepKvar)} kVAr steps): even ${a.steps} step(s) (${kv(a.installedKvar)} kVAr, all the load can use without leading) leave a month below PF ${a.target.toFixed(2)}; use a smaller step.`,
+      `  ${after}`,
+    ];
+  }
+  return [
+    `APFC: ${b(`${a.steps} x ${kv(a.stepKvar)} kVAr = ${kv(a.installedKvar)} kVAr`)} lifts every month to PF >= ${a.target.toFixed(2)} with no leading kVArh (mean ${num(a.avgStepsOn, 1)} step(s) in service, all steps in ${a.fullIntervals} interval(s)).`,
+    `  ${after}`,
+  ];
 }
 
 export function formatText(report: Report, limit = 50): string {
@@ -62,6 +85,7 @@ export function formatText(report: Report, limit = 50): string {
         out.push(`  Over-compensation: ${z.overCompensatedIntervals} interval(s), ${num(z.addedLeadingKvarh, 1)} kVArh leading at light load; consider an automatic (stepped) bank.`);
       }
     }
+    if (m.apfc) out.push(...apfcLines(m.apfc));
     if (m.profile) {
       const { used, below } = profileRows(m.profile);
       out.push('', 'Hour-of-day profile (interval start, all days):');
