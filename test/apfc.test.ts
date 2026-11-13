@@ -85,6 +85,11 @@ describe('APFC stepped bank', () => {
     expect(formatCsv(report)).toBe(formatCsv(analyze(rows)));
   });
 
+  it('keeps fractional step sizes in the text', () => {
+    expect(formatText(analyze(rows, { apfcStepKvar: 2.5 }))).toMatch(/APFC: \d+ x 2\.5 kVAr = [\d.]+ kVAr/);
+    expect(formatText(analyze(rows, { apfcStepKvar: 0.25, target: 0.95 }))).toMatch(/x 0\.25 kVAr/);
+  });
+
   it('validates --apfc-step on the CLI', () => {
     const err: string[] = [];
     for (const v of ['0', '-5', 'abc', '200000']) {

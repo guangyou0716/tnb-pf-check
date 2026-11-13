@@ -31,21 +31,22 @@ export function profileRows(profile: HourProfile[]) {
 /** One-paragraph APFC result, shared by text and Markdown (bold marks the installed size in Markdown). */
 export function apfcLines(a: ApfcSizing, bold = false): string[] {
   const b = (t: string) => (bold ? `**${t}**` : t);
+  const kv = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
   const after = `After: ${a.monthsAfter.map((x) => `${x.month} ${x.pf === null ? '-' : x.pf.toFixed(4)}`).join(', ')}`;
   if (a.steps === 0 && a.targetMet) {
-    return [`APFC (${num(a.stepKvar, 1)} kVAr steps): no steps needed, every month already reaches PF ${a.target.toFixed(2)}.`];
+    return [`APFC (${kv(a.stepKvar)} kVAr steps): no steps needed, every month already reaches PF ${a.target.toFixed(2)}.`];
   }
   if (!a.targetMet && a.steps === 0) {
-    return [`APFC (${num(a.stepKvar, 1)} kVAr steps): one step is more than the lagging kVAr of any interval, so it would never switch in; use a smaller step.`];
+    return [`APFC (${kv(a.stepKvar)} kVAr steps): one step is more than the lagging kVAr of any interval, so it would never switch in; use a smaller step.`];
   }
   if (!a.targetMet) {
     return [
-      `APFC (${num(a.stepKvar, 1)} kVAr steps): even ${a.steps} step(s) (${num(a.installedKvar, 1)} kVAr, all the load can use without leading) leave a month below PF ${a.target.toFixed(2)}; use a smaller step.`,
+      `APFC (${kv(a.stepKvar)} kVAr steps): even ${a.steps} step(s) (${kv(a.installedKvar)} kVAr, all the load can use without leading) leave a month below PF ${a.target.toFixed(2)}; use a smaller step.`,
       `  ${after}`,
     ];
   }
   return [
-    `APFC: ${b(`${a.steps} x ${num(a.stepKvar, 1)} kVAr = ${num(a.installedKvar, 1)} kVAr`)} lifts every month to PF >= ${a.target.toFixed(2)} with no leading kVArh (mean ${num(a.avgStepsOn, 1)} step(s) in service, all steps in ${a.fullIntervals} interval(s)).`,
+    `APFC: ${b(`${a.steps} x ${kv(a.stepKvar)} kVAr = ${kv(a.installedKvar)} kVAr`)} lifts every month to PF >= ${a.target.toFixed(2)} with no leading kVArh (mean ${num(a.avgStepsOn, 1)} step(s) in service, all steps in ${a.fullIntervals} interval(s)).`,
     `  ${after}`,
   ];
 }
