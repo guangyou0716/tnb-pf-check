@@ -29,6 +29,7 @@ Options:
   --kvarh-column <name> default "kvarh"
   --meter-column <name> default "meter" when present
   --profile             hour-of-day PF profile per meter (text / Markdown / JSON; not in --csv)
+  --profile-split       also split that profile into weekdays (Mon-Fri) and weekend (Sat-Sun); implies --profile
   --apfc-step <kvar>    also size an automatic (APFC) bank of equal steps of this kVAr (text / Markdown / JSON)
   --limit <n>           findings shown in text / Markdown output (default 50)
   --json                JSON output
@@ -124,6 +125,9 @@ export function parseArgs(argv: string[]): Parsed | 'help' | 'version' {
         break;
       case '--profile':
         p.analyze.profile = true;
+        break;
+      case '--profile-split':
+        p.analyze.profileSplit = true;
         break;
       case '--apfc-step':
         p.analyze.apfcStepKvar = numberFlag(arg, value());

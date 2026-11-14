@@ -1,5 +1,5 @@
 import type { Report } from './analyze.js';
-import { apfcLines, hourLabel, profileRows } from './report.js';
+import { apfcLines, hourLabel, profileRows, profileSections } from './report.js';
 
 /** One CSV cell: quoted when needed; cells starting with = + - @ tab or CR (text, not numbers) get a leading ' so spreadsheets do not run them as formulas. */
 export function csvCell(v: string | number | null | undefined): string {
@@ -122,9 +122,14 @@ export function formatMarkdown(report: Report, limit = 50): string {
       }
     }
     if (m.apfc) out.push(...apfcLines(m.apfc, true).flatMap((l) => ['', l.trimStart()]));
-    if (m.profile) {
-      const { used, below } = profileRows(m.profile);
-      out.push('', '### Hour-of-day profile', '', '_Hour of the interval start, all days._', '');
+    for (const sec of profileSections(m)) {
+      const { used, below } = profileRows(sec.rows);
+      const title = sec.label === 'all days' ? 'Hour-of-day profile' : `Hour-of-day profile, ${sec.label}`;
+      out.push('', `### ${title}`, '', `_Hour of the interval start, ${sec.label}._`, '');
+      if (used.length === 0) {
+        out.push('No intervals.');
+        continue;
+      }
       out.push(
         ...mdTable(
           ['Hour', 'Intervals', 'kWh', 'kVArh lag', 'Avg kW', 'Avg kVAr', 'PF', 'Below minimum'],

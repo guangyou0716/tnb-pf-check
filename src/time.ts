@@ -53,3 +53,9 @@ export function minutesInMonth(key: string): number {
   const [y, m] = key.split('-').map(Number);
   return new Date(Date.UTC(y, m, 0)).getUTCDate() * 1440;
 }
+
+/** Saturday or Sunday on the wall clock of this minute (public holidays are not known). */
+export function isWeekend(minutes: number): boolean {
+  const day = new Date(minutes * 60_000).getUTCDay();
+  return day === 0 || day === 6;
+}

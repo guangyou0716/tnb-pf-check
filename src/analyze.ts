@@ -1,7 +1,7 @@
 import { InputError } from './errors.js';
 import { chargeKey, type Charges, type IntervalRow } from './input.js';
 import { averagePf, LIMITS, roundHalfUp, surchargePercent, type Supply } from './tariff.js';
-import { formatMinutes, minutesInMonth, monthKey } from './time.js';
+import { formatMinutes, isWeekend, minutesInMonth, monthKey } from './time.js';
 
 export interface AnalyzeOptions {
   supply?: Supply;
@@ -16,6 +16,8 @@ export interface AnalyzeOptions {
   charges?: Charges;
   /** Add an hour-of-day PF profile per meter (hour of the interval start). */
   profile?: boolean;
+  /** Also split the hour-of-day profile into weekdays (Mon-Fri) and weekend (Sat-Sun); implies profile. */
+  profileSplit?: boolean;
   /** Simulate an automatic (APFC) bank of equal steps of this many kVAr and size the step count. */
   apfcStepKvar?: number;
 }
@@ -100,6 +102,9 @@ export interface MeterResult {
   sizing: Sizing;
   /** Present only with the profile option: 24 rows, hour 0..23. */
   profile?: HourProfile[];
+  /** Present only with the profileSplit option: the same 24 rows over Mon-Fri / Sat-Sun interval starts. */
+  profileWeekday?: HourProfile[];
+  profileWeekend?: HourProfile[];
   /** Present only with the apfcStepKvar option. */
   apfc?: ApfcSizing;
 }
@@ -336,7 +341,11 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
     const monthIndex = new Map<string, number>();
     const months: MonthResult[] = [];
     const intervals: Interval[] = [];
-    const hours = options.profile ? Array.from({ length: 24 }, () => ({ intervals: 0, kwh: 0, lag: 0 })) : null;
+    const split = options.profileSplit === true;
+    const emptyHours = () => Array.from({ length: 24 }, () => ({ intervals: 0, kwh: 0, lag: 0 }));
+    const hours = options.profile || split ? emptyHours() : null;
+    const weekdayHours = split ? emptyHours() : null;
+    const weekendHours = split ? emptyHours() : null;
     for (let i = 0; i < unique.length; i++) {
       const row = unique[i];
       if (i > 0) {
@@ -369,10 +378,15 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       m.kvarhLeading += lead;
       intervals.push({ kwh, lag, lead, month: mi });
       if (hours) {
-        const h = hours[Math.floor((((start % 1440) + 1440) % 1440) / 60)];
-        h.intervals++;
-        h.kwh += kwh;
-        h.lag += lag;
+        const hour = Math.floor((((start % 1440) + 1440) % 1440) / 60);
+        const buckets = [hours];
+        if (weekdayHours && weekendHours) buckets.push(isWeekend(start) ? weekendHours : weekdayHours);
+        for (const b of buckets) {
+          const h = b[hour];
+          h.intervals++;
+          h.kwh += kwh;
+          h.lag += lag;
+        }
       }
     }
     for (const m of months) {
@@ -407,6 +421,9 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       months,
       sizing,
       ...(hours ? { profile: hourProfile(hours, step, supply) } : {}),
+      ...(weekdayHours && weekendHours
+        ? { profileWeekday: hourProfile(weekdayHours, step, supply), profileWeekend: hourProfile(weekendHours, step, supply) }
+        : {}),
       ...(options.apfcStepKvar !== undefined
         ? { apfc: sizeApfc(intervals, months, step, options.apfcStepKvar, target, supply, options.pfRound) }
         : {}),
