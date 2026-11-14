@@ -20,6 +20,8 @@ export interface AnalyzeOptions {
   profileSplit?: boolean;
   /** Simulate an automatic (APFC) bank of equal steps of this many kVAr and size the step count. */
   apfcStepKvar?: number;
+  /** Add monthly maximum demand (kW) and reactive maximum demand (kVAr) per TNB tariff booklet 1(o) / 1(r). */
+  demand?: boolean;
 }
 
 export type FindingType = 'surcharge' | 'duplicate-timestamp' | 'negative-kwh' | 'gap' | 'irregular-step';
@@ -47,6 +49,20 @@ export interface MonthResult {
   surchargePercent: number;
   chargesRm: number | null;
   surchargeRm: number | null;
+  /** Present only with the demand option (null fields when the interval length does not divide 30 minutes). */
+  demand?: MonthDemand;
+}
+
+export interface MonthDemand {
+  /** Twice the largest kWh in any clock half hour (:00-:30, :30-:00) of the month (booklet 1(o)). */
+  mdKw: number | null;
+  /** Start of that half hour. */
+  mdAt: string | null;
+  /** Twice the largest lagging kVArh in any clock half hour of the month (booklet 1(r)). */
+  reactiveMdKvar: number | null;
+  reactiveMdAt: string | null;
+  /** Reactive MD with the sized fixed bank connected (same as reactiveMdKvar when no bank is needed). */
+  reactiveMdAfterBankKvar: number | null;
 }
 
 export interface Sizing {
@@ -107,6 +123,8 @@ export interface MeterResult {
   profileWeekend?: HourProfile[];
   /** Present only with the apfcStepKvar option. */
   apfc?: ApfcSizing;
+  /** Present only with the demand option when MD cannot be computed (interval length does not divide 30 min). */
+  demandNote?: string;
 }
 
 export interface Report {
@@ -129,6 +147,8 @@ interface Interval {
   lag: number;
   lead: number;
   month: number;
+  /** Interval start, wall-clock minutes. */
+  start: number;
 }
 
 const round = (value: number, digits: number) => {
@@ -281,6 +301,60 @@ function sizeApfc(intervals: Interval[], months: MonthResult[], intervalMinutes:
   };
 }
 
+/**
+ * Monthly MD from clock-aligned half hours: the intervals whose start falls in the same :00-:30 or :30-:00 half
+ * hour are summed (a half hour with missing intervals counts what is there), then twice the largest sum is the MD.
+ * Half hours never cross a month boundary, so each belongs to the month of its intervals.
+ */
+function monthDemand(intervals: Interval[], monthCount: number, bankKvar: number, intervalMinutes: number): MonthDemand[] {
+  const supplied = (bankKvar * intervalMinutes) / 60;
+  const best = Array.from({ length: monthCount }, () => ({ kwh: -1, kwhAt: 0, lag: -1, lagAt: 0, after: 0 }));
+  let block = Number.NaN;
+  let month = 0;
+  let kwh = 0;
+  let lag = 0;
+  let after = 0;
+  const close = () => {
+    if (Number.isNaN(block)) return;
+    const b = best[month];
+    if (kwh > b.kwh) {
+      b.kwh = kwh;
+      b.kwhAt = block;
+    }
+    if (lag > b.lag) {
+      b.lag = lag;
+      b.lagAt = block;
+    }
+    if (after > b.after) b.after = after;
+  };
+  for (const iv of intervals) {
+    const start = Math.floor(iv.start / 30) * 30;
+    if (start !== block) {
+      close();
+      block = start;
+      month = iv.month;
+      kwh = 0;
+      lag = 0;
+      after = 0;
+    }
+    kwh += iv.kwh;
+    lag += iv.lag;
+    after += Math.max(0, iv.lag - supplied);
+  }
+  close();
+  return best.map((b) =>
+    b.kwh < 0
+      ? { mdKw: null, mdAt: null, reactiveMdKvar: null, reactiveMdAt: null, reactiveMdAfterBankKvar: null }
+      : {
+          mdKw: round(2 * b.kwh, 3),
+          mdAt: formatMinutes(b.kwhAt),
+          reactiveMdKvar: round(2 * b.lag, 3),
+          reactiveMdAt: formatMinutes(b.lagAt),
+          reactiveMdAfterBankKvar: round(2 * b.after, 3),
+        },
+  );
+}
+
 function hourProfile(hours: { intervals: number; kwh: number; lag: number }[], step: number, supply: Supply): HourProfile[] {
   const h = step / 60;
   return hours.map((x, hour) => {
@@ -376,7 +450,7 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       m.kwh += kwh;
       m.kvarhLagging += lag;
       m.kvarhLeading += lead;
-      intervals.push({ kwh, lag, lead, month: mi });
+      intervals.push({ kwh, lag, lead, month: mi, start });
       if (hours) {
         const hour = Math.floor((((start % 1440) + 1440) % 1440) / 60);
         const buckets = [hours];
@@ -412,6 +486,18 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       }
     }
     const sizing = sizeBank(intervals, months, step, target, supply, options.pfRound);
+    let demandNote: string | undefined;
+    if (options.demand) {
+      if (30 % step === 0) {
+        const demand = monthDemand(intervals, months.length, sizing.requiredKvar, step);
+        months.forEach((m, i) => (m.demand = demand[i]));
+      } else {
+        demandNote = `MD needs intervals of 30 minutes or a divisor of 30 (this meter has ${step} min).`;
+        for (const m of months) {
+          m.demand = { mdKw: null, mdAt: null, reactiveMdKvar: null, reactiveMdAt: null, reactiveMdAfterBankKvar: null };
+        }
+      }
+    }
     meters.push({
       meter,
       intervalMinutes: step,
@@ -427,6 +513,7 @@ export function analyze(rows: IntervalRow[], options: AnalyzeOptions = {}): Repo
       ...(options.apfcStepKvar !== undefined
         ? { apfc: sizeApfc(intervals, months, step, options.apfcStepKvar, target, supply, options.pfRound) }
         : {}),
+      ...(demandNote !== undefined ? { demandNote } : {}),
     });
   }
   const order: FindingType[] = ['surcharge', 'gap', 'irregular-step', 'duplicate-timestamp', 'negative-kwh'];

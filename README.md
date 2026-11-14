@@ -114,6 +114,32 @@ weekend (Sat-Sun), by the day of the interval start (JSON `meters[].profileWeekd
 plant that runs a weekday day shift often has a poor PF only on weekdays; this shows whether the weekend needs
 the bank at all. Public holidays are not known and count as their weekday.
 
+`--demand` adds a monthly **maximum demand** table per meter (text, Markdown, JSON `months[].demand`, and five
+extra columns at the end of `--csv`), using the definitions in section 1 of the TNB tariff booklet
+([tnb.com.my/assets/files/Tariff_booklet.pdf](https://www.tnb.com.my/assets/files/Tariff_booklet.pdf)):
+
+- 1(o) *kilowatts of maximum demand* = twice the largest kWh supplied during any consecutive thirty minutes of
+  the month (`mdKw`);
+- 1(r) *reactive kilovolt-amperes of maximum demand* = twice the largest reactive kVArh supplied during any
+  consecutive thirty minutes of the month (`reactiveMdKvar`; lagging kVArh only, leading is not counted).
+
+For the example:
+
+```text
+Month    MD kW             MD at  Reactive MD kVAr    Reactive MD at  Reactive MD with 26.6 kVAr
+-------  -----  ----------------  ----------------  ----------------  --------------------------
+2026-01  100.0  2026-01-01 00:00             110.0  2026-01-01 08:00                        83.4
+2026-02  100.0  2026-02-01 00:00              90.0  2026-02-01 08:00                        63.4
+```
+
+The thirty minutes are taken as clock half hours (:00-:30 and :30-:00, the same as tnb-tou-check): 15-, 10- or
+5-minute intervals are summed into their half hour, not into a sliding window. A half hour with missing intervals
+counts what is there (gaps are listed as findings). Data whose interval does not divide 30 minutes (e.g. hourly)
+gets a note and empty values. The times are the start of the half hour. The last column is the reactive MD with
+the sized fixed bank connected (each interval's lagging kVArh minus the bank, not below zero). This tool does not
+price MD or reactive MD (no RM); it shows how much kW and kVAr the site draws in its worst half hour, which is
+useful when talking to TNB or a contractor about a bank.
+
 Exit codes: `0` no findings, `1` findings (a surcharge month or a data issue), `2` input error.
 
 ### Capacitor sizing

@@ -1,5 +1,24 @@
 import type { ApfcSizing, HourProfile, MeterResult, Report } from './analyze.js';
 
+/** What the MD table shows (TNB tariff booklet, definitions 1(o) and 1(r)). */
+export const DEMAND_NOTE = 'twice the largest clock half-hour kWh (MD) / lagging kVArh (reactive MD) in the month, TNB tariff booklet 1(o) / 1(r); times = start of that half hour';
+
+/** Header and rows of the monthly MD table, shared by text and Markdown; null when --demand is off. */
+export function demandTable(m: MeterResult, fmt: (v: number, d: number) => string): { head: string[]; rows: string[][] } | null {
+  if (!m.months.some((x) => x.demand)) return null;
+  const bank = m.sizing.requiredKvar;
+  const head = ['Month', 'MD kW', 'MD at', 'Reactive MD kVAr', 'Reactive MD at'];
+  if (bank > 0) head.push(`Reactive MD with ${fmt(bank, 1)} kVAr`);
+  const v = (n: number | null | undefined) => (n === null || n === undefined ? '-' : fmt(n, 1));
+  const rows = m.months.map((x) => {
+    const d = x.demand;
+    const row = [x.month, v(d?.mdKw), d?.mdAt ?? '-', v(d?.reactiveMdKvar), d?.reactiveMdAt ?? '-'];
+    if (bank > 0) row.push(v(d?.reactiveMdAfterBankKvar));
+    return row;
+  });
+  return { head, rows };
+}
+
 const num = (v: number, d: number) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
 
@@ -95,6 +114,12 @@ export function formatText(report: Report, limit = 50): string {
       }
     }
     if (m.apfc) out.push(...apfcLines(m.apfc));
+    const dt = demandTable(m, num);
+    if (dt) {
+      out.push('', `Maximum demand (${DEMAND_NOTE}):`);
+      if (m.demandNote) out.push(`  ${m.demandNote}`);
+      else out.push(...table(dt.head, dt.rows));
+    }
     for (const sec of profileSections(m)) {
       const { used, below } = profileRows(sec.rows);
       out.push('', `Hour-of-day profile (interval start, ${sec.label}):`);

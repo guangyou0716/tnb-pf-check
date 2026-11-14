@@ -1,5 +1,5 @@
 import type { Report } from './analyze.js';
-import { apfcLines, hourLabel, profileRows, profileSections } from './report.js';
+import { apfcLines, DEMAND_NOTE, demandTable, hourLabel, profileRows, profileSections } from './report.js';
 
 /** One CSV cell: quoted when needed; cells starting with = + - @ tab or CR (text, not numbers) get a leading ' so spreadsheets do not run them as formulas. */
 export function csvCell(v: string | number | null | undefined): string {
@@ -46,9 +46,13 @@ export const CSV_HEADER = [
   'surcharge_percent_after_bank',
 ];
 
+/** Extra CSV columns added at the end with the demand option. */
+export const CSV_DEMAND_HEADER = ['md_kw', 'md_at', 'reactive_md_kvar', 'reactive_md_at', 'reactive_md_after_bank_kvar'];
+
 /** CSV, one row per meter-month, with the fixed bank sized for that meter and the month's PF after it. */
 export function formatCsv(report: Report): string {
-  const lines = [CSV_HEADER.join(',')];
+  const withDemand = report.meters.some((m) => m.months.some((x) => x.demand));
+  const lines = [(withDemand ? [...CSV_HEADER, ...CSV_DEMAND_HEADER] : CSV_HEADER).join(',')];
   for (const m of report.meters) {
     const after = new Map(m.sizing.monthsAfter.map((a) => [a.month, a]));
     for (const x of m.months) {
@@ -73,6 +77,9 @@ export function formatCsv(report: Report): string {
           m.sizing.requiredKvar,
           a === undefined || a.pf === null ? null : r(a.pf, 6),
           a === undefined ? null : r(a.surchargePercent, 4),
+          ...(withDemand
+            ? [x.demand?.mdKw, x.demand?.mdAt, x.demand?.reactiveMdKvar, x.demand?.reactiveMdAt, x.demand?.reactiveMdAfterBankKvar]
+            : []),
         ]),
       );
     }
@@ -122,6 +129,12 @@ export function formatMarkdown(report: Report, limit = 50): string {
       }
     }
     if (m.apfc) out.push(...apfcLines(m.apfc, true).flatMap((l) => ['', l.trimStart()]));
+    const dt = demandTable(m, fixed);
+    if (dt) {
+      out.push('', '### Maximum demand', '', `_${DEMAND_NOTE[0].toUpperCase()}${DEMAND_NOTE.slice(1)}._`, '');
+      if (m.demandNote) out.push(m.demandNote);
+      else out.push(...mdTable(dt.head, dt.rows, dt.head.map((h, i) => i > 0 && !h.endsWith(' at'))));
+    }
     for (const sec of profileSections(m)) {
       const { used, below } = profileRows(sec.rows);
       const title = sec.label === 'all days' ? 'Hour-of-day profile' : `Hour-of-day profile, ${sec.label}`;
