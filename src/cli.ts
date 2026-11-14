@@ -31,6 +31,8 @@ Options:
   --profile             hour-of-day PF profile per meter (text / Markdown / JSON; not in --csv)
   --profile-split       also split that profile into weekdays (Mon-Fri) and weekend (Sat-Sun); implies --profile
   --apfc-step <kvar>    also size an automatic (APFC) bank of equal steps of this kVAr (text / Markdown / JSON)
+  --demand              monthly MD (kW) and reactive MD (kVAr): twice the largest 30-min kWh / lagging kVArh
+                        (TNB booklet 1(o) / 1(r)), also with the sized fixed bank
   --limit <n>           findings shown in text / Markdown output (default 50)
   --json                JSON output
   --md                  Markdown report (summary, month tables, sizing, findings)
@@ -131,6 +133,9 @@ export function parseArgs(argv: string[]): Parsed | 'help' | 'version' {
         break;
       case '--apfc-step':
         p.analyze.apfcStepKvar = numberFlag(arg, value());
+        break;
+      case '--demand':
+        p.analyze.demand = true;
         break;
       case '--limit': {
         const n = numberFlag(arg, value());

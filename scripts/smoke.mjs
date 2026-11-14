@@ -40,11 +40,16 @@ for (let m = 0; m < 20; m++) {
 }
 writeFileSync(join(dir, 'year.csv'), lines.join('\n') + '\n');
 const t0 = Date.now();
-const big = run(cli, [join(dir, 'year.csv'), '--json']);
+const big = run(cli, [join(dir, 'year.csv'), '--demand', '--json']);
 const bd = big.stdout ? JSON.parse(big.stdout) : {};
 const ms = Date.now() - t0;
 if (big.status !== 1 || bd.summary?.rows !== 350_400 || bd.summary?.months !== 240 || bd.summary?.surchargeMonths !== 12) {
   fail(`large: status ${big.status} ${JSON.stringify(bd.summary)} ${big.stderr}`);
 }
 if (bd.findings.some((f) => f.meter !== 'M7' || f.type !== 'surcharge')) fail('large: unexpected findings');
-console.log(`smoke: ok large (20 meters x 1 year of 30-min data = 350,400 rows; M7 surcharged 12 months) in ${ms} ms`);
+// Largest half hour is 46 kWh -> MD 92 kW; M7 lagging 46 x 0.9 = 41.4 kVArh -> reactive MD 82.8 kVAr.
+const m7 = bd.meters.find((m) => m.meter === 'M7');
+if (!bd.meters.every((m) => m.months.every((x) => x.demand?.mdKw === 92)) || !m7.months.every((x) => x.demand?.reactiveMdKvar === 82.8)) {
+  fail('large: --demand values');
+}
+console.log(`smoke: ok large (20 meters x 1 year of 30-min data = 350,400 rows; M7 surcharged 12 months; --demand MD 92 kW, M7 reactive MD 82.8 kVAr) in ${ms} ms`);
