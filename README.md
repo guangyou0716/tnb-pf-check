@@ -109,6 +109,11 @@ the supply minimum merged into ranges, e.g. for the example:
 This shows when the PF is poor (and what kVAr is drawn then), which helps decide between a fixed bank, a
 stepped (APFC) bank or switching a bank with the day shift.
 
+`--profile-split` (implies `--profile`) adds the same table twice more: over weekdays (Mon-Fri) and over the
+weekend (Sat-Sun), by the day of the interval start (JSON `meters[].profileWeekday` / `profileWeekend`). A
+plant that runs a weekday day shift often has a poor PF only on weekdays; this shows whether the weekend needs
+the bank at all. Public holidays are not known and count as their weekday.
+
 Exit codes: `0` no findings, `1` findings (a surcharge month or a data issue), `2` input error.
 
 ### Capacitor sizing

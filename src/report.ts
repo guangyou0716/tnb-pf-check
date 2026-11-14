@@ -1,4 +1,4 @@
-import type { ApfcSizing, HourProfile, Report } from './analyze.js';
+import type { ApfcSizing, HourProfile, MeterResult, Report } from './analyze.js';
 
 const num = (v: number, d: number) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
@@ -26,6 +26,15 @@ export function profileRows(profile: HourProfile[]) {
     }
   }
   return { used, below };
+}
+
+/** The profile tables to print for a meter: all days, then weekdays / weekend with --profile-split. */
+export function profileSections(m: MeterResult): { label: string; rows: HourProfile[] }[] {
+  const out: { label: string; rows: HourProfile[] }[] = [];
+  if (m.profile) out.push({ label: 'all days', rows: m.profile });
+  if (m.profileWeekday) out.push({ label: 'weekdays Mon-Fri', rows: m.profileWeekday });
+  if (m.profileWeekend) out.push({ label: 'weekend Sat-Sun', rows: m.profileWeekend });
+  return out;
 }
 
 /** One-paragraph APFC result, shared by text and Markdown (bold marks the installed size in Markdown). */
@@ -86,9 +95,13 @@ export function formatText(report: Report, limit = 50): string {
       }
     }
     if (m.apfc) out.push(...apfcLines(m.apfc));
-    if (m.profile) {
-      const { used, below } = profileRows(m.profile);
-      out.push('', 'Hour-of-day profile (interval start, all days):');
+    for (const sec of profileSections(m)) {
+      const { used, below } = profileRows(sec.rows);
+      out.push('', `Hour-of-day profile (interval start, ${sec.label}):`);
+      if (used.length === 0) {
+        out.push('  No intervals.');
+        continue;
+      }
       out.push(
         ...table(
           ['Hour', 'Intervals', 'kWh', 'kVArh lag', 'Avg kW', 'Avg kVAr', 'PF', ''],
